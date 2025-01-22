@@ -287,7 +287,6 @@ func (rf *Raft) StartElection() {
 						grantedVotes += 1
 						if grantedVotes > len(rf.peers)/2 {
 							rf.ChangeState(StateLeader)
-							rf.BroadcastAppendEntries(true)
 						}
 
 					} else if response.Term > rf.currentTerm {
