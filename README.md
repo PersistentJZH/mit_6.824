@@ -10,7 +10,7 @@
 3. Part 2C: persistence
    * Implement persistent storage and reading of Raft's key states.
 
-4. Part 2D: log compaction
+4. Part 2D: log compaction1
    * Implement functions such as log snapshot compression and installation snapshot.
 
 **Lab3**
