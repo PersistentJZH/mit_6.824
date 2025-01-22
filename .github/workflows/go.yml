@@ -1,0 +1,28 @@
+name: Go Test
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TEST_CASES_LAB2: "2A"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: '1.23.4'
+
+      - name: Run tests 2A
+        run: |
+          cd src/raft
+          for test_case in $TEST_CASES_LAB2; do
+            for i in {1..10}; do
+            echo "Running test $test_case round: $i"
+            go test -run 2A
+            done
+          done
