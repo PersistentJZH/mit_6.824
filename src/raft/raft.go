@@ -279,15 +279,12 @@ func (rf *Raft) StartElection() {
 		go func(peer int) {
 			response := new(RequestVoteResponse)
 			if rf.sendRequestVote(peer, request, response) {
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
 
 				if rf.currentTerm == request.Term && rf.state == StateCandidate {
 					if response.VoteGranted {
 						grantedVotes += 1
 						if grantedVotes > len(rf.peers)/2 {
 							rf.ChangeState(StateLeader)
-							rf.BroadcastAppendEntries(true)
 						}
 
 					} else if response.Term > rf.currentTerm {
@@ -316,10 +313,12 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 
 func (rf *Raft) sendHeartBeatAppendEntries(peer int) {
 
+	rf.mu.Lock()
 	if rf.state != StateLeader {
-
+		rf.mu.Unlock()
 		return
 	}
+	rf.mu.Unlock()
 
 	request := &AppendEntriesRequest{
 		Term:     rf.currentTerm,
@@ -329,10 +328,7 @@ func (rf *Raft) sendHeartBeatAppendEntries(peer int) {
 	response := new(AppendEntriesResponse)
 	DPrintf("Term:%d, [Node %v] send heart beat to [Node %v]", rf.currentTerm, rf.me, peer)
 	if rf.sendAppendEntries(peer, request, response) {
-		if response.Term > rf.currentTerm {
-			rf.ChangeState(StateFollower)
-			rf.currentTerm, rf.votedFor = response.Term, -1
-		}
+
 	}
 
 }
