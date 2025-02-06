@@ -312,9 +312,9 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 		response.Term, response.Success = rf.currentTerm, false
 		return
 	}
+	rf.ChangeState(StateFollower)
 	// if heart beat
 	if request.Entries == nil || len(request.Entries) == 0 {
-		rf.ChangeState(StateFollower)
 		response.Term, response.Success = rf.currentTerm, true
 		return
 	}
