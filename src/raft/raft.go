@@ -283,8 +283,6 @@ func (rf *Raft) StartElection() {
 		go func(peer int) {
 			response := new(RequestVoteResponse)
 			if rf.sendRequestVote(peer, request, response) {
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
 
 				if rf.currentTerm == request.Term && rf.state == StateCandidate {
 					if response.VoteGranted {
