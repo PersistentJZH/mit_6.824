@@ -153,6 +153,9 @@ func (rf *Raft) RequestVote(args *RequestVoteRequest, reply *RequestVoteResponse
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && rf.isLogUpToDate(args.LastLogTerm, args.LastLogIndex) {
 		reply.VoteGranted = true
 		reply.Term = rf.currentTerm
+		rf.currentTerm = args.Term
+		rf.votedFor = args.CandidateId
+		rf.electionTicker.Reset(GetElectionDuration())
 		return
 	}
 }
@@ -307,6 +310,12 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 		rf.ChangeState(StateFollower)
 		rf.currentTerm, rf.votedFor = request.Term, -1
 	}
+
+	if request.Term < rf.currentTerm {
+		response.Term, response.Success = rf.currentTerm, false
+		return
+	}
+	rf.ChangeState(StateFollower)
 	// if heart beat
 	if request.Entries == nil || len(request.Entries) == 0 {
 		response.Term, response.Success = rf.currentTerm, true

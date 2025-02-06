@@ -21,7 +21,7 @@ jobs:
         run: |
           cd src/raft
           for test_case in $TEST_CASES_LAB2; do
-            for i in {1..10}; do
+            for i in {1..100}; do
             echo "Running test $test_case round: $i"
             go test -run 2A
             done
