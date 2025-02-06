@@ -307,6 +307,11 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 		rf.ChangeState(StateFollower)
 		rf.currentTerm, rf.votedFor = request.Term, -1
 	}
+	
+	if request.Term < rf.currentTerm {
+		response.Term, response.Success = rf.currentTerm, false
+		return
+	}
 	// if heart beat
 	if request.Entries == nil || len(request.Entries) == 0 {
 		response.Term, response.Success = rf.currentTerm, true
