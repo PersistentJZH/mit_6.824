@@ -22,7 +22,7 @@ type AppendEntriesRequest struct {
 }
 type AppendEntriesResponse struct {
 	Term          int
-	Success       bool
+	Success       bool // no conflicts
 	ConflictIndex int
 	ConflictTerm  int
 }

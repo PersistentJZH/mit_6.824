@@ -29,7 +29,7 @@ const (
 )
 
 const (
-	HeartbeatTimeout = 100
+	HeartbeatTimeout = 125
 	ElectionTimeout  = 1000
 )
 
@@ -40,4 +40,40 @@ func GetHeartbeatDuration() time.Duration {
 func GetElectionDuration() time.Duration {
 	rand.Seed(time.Now().UnixNano())
 	return time.Duration(ElectionTimeout+rand.Intn(ElectionTimeout)) * time.Millisecond
+}
+
+func Min(x, y int) int {
+	if x > y {
+		return y
+	}
+	return x
+}
+
+func Max(x, y int) int {
+	if x < y {
+		return y
+	}
+	return x
+}
+
+func insertionSort(sl []int) {
+	a, b := 0, len(sl)
+	for i := a + 1; i < b; i++ {
+		for j := i; j > a && sl[j] < sl[j-1]; j-- {
+			sl[j], sl[j-1] = sl[j-1], sl[j]
+		}
+	}
+}
+func shrinkEntriesArray(entries []Entry) []Entry {
+	// We replace the array if we're using less than half of the space in
+	// it. This number is fairly arbitrary, chosen as an attempt to balance
+	// memory usage vs number of allocations. It could probably be improved
+	// with some focused tuning.
+	const lenMultiple = 2
+	if len(entries)*lenMultiple < cap(entries) {
+		newEntries := make([]Entry, len(entries))
+		copy(newEntries, entries)
+		return newEntries
+	}
+	return entries
 }
