@@ -3,10 +3,9 @@
 **Lab2**
 1. Part 2A: leader election
    * Implement Leader election and heartbeat detection functions.
-
+     ![](docs/raft_overview.gif)
 2. Part 2B: log
    * Implement the log replication function of Leader and Follower.
-
 3. Part 2C: persistence
    * Implement persistent storage and reading of Raft's key states.
 
