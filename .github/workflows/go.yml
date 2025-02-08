@@ -5,8 +5,6 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      TEST_CASES_LAB2: "2A"
 
     steps:
       - name: Checkout code
@@ -17,12 +15,18 @@ jobs:
         with:
           go-version: '1.23.4'
 
-      - name: Run tests 2A
+#      - name: Run tests 2A
+#        run: |
+#          cd src/raft
+#          for i in {1..100}; do
+#            echo "Running test 2A round: $i"
+#            go test -run 2A
+#          done
+
+      - name: Run tests 2B
         run: |
           cd src/raft
-          for test_case in $TEST_CASES_LAB2; do
-            for i in {1..100}; do
-            echo "Running test $test_case round: $i"
-            go test -run 2A
-            done
+          for i in {1..30}; do
+            echo "Running test 2B round: $i"
+            go test -run 2B
           done
