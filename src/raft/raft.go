@@ -525,6 +525,7 @@ func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequ
 	if response.Term > rf.currentTerm {
 		rf.ChangeState(StateFollower)
 		rf.currentTerm, rf.votedFor = response.Term, -1
+		return
 	}
 
 	if rf.state != StateLeader || rf.currentTerm != request.Term {
