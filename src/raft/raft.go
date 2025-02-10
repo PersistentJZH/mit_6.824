@@ -101,7 +101,6 @@ func (rf *Raft) encodeState() []byte {
 // see paper's Figure 2 for a description of what should be persistent.
 func (rf *Raft) persist() {
 	rf.persister.SaveRaftState(rf.encodeState())
-
 }
 
 // restore previously persisted state.
@@ -142,6 +141,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 }
 
 func (rf *Raft) RequestVote(args *RequestVoteRequest, reply *RequestVoteResponse) {
+	defer rf.persist()
 	// common logic: all servers need
 	if args.Term > rf.currentTerm {
 		rf.ChangeState(StateFollower)
@@ -261,6 +261,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 }
 
 func (rf *Raft) appendNewEntry(command interface{}) Entry {
+	defer rf.persist()
 	lastLog := rf.getLastLog()
 	newLog := Entry{lastLog.Index + 1, rf.currentTerm, command}
 	rf.logs = append(rf.logs, newLog)
@@ -288,6 +289,7 @@ func (rf *Raft) killed() bool {
 }
 
 func (rf *Raft) StartElection() {
+	defer rf.persist()
 	// 1.generate election request
 	lastLog := rf.getLastLog()
 	request := &RequestVoteRequest{
@@ -326,7 +328,7 @@ func (rf *Raft) StartElection() {
 }
 
 func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEntriesResponse) {
-
+	defer rf.persist()
 	if request.Term < rf.currentTerm {
 		response.Term, response.Success = rf.currentTerm, false
 		return
@@ -453,6 +455,7 @@ func (rf *Raft) sendHeartBeatAppendEntries(peer int) {
 
 }
 func (rf *Raft) appendEntry(peer int) {
+	defer rf.persist()
 
 	if rf.state != StateLeader {
 		return
@@ -675,6 +678,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		heartbeatTimer: time.NewTimer(GetHeartbeatDuration()),
 	}
 	rf.applyCond = sync.NewCond(&rf.mu)
+	// get state persisted before a crash
+	rf.readPersist(persister.ReadRaftState())
 
 	lastLog := rf.getLastLog()
 
