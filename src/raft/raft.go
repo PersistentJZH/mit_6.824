@@ -19,6 +19,7 @@ package raft
 
 import (
 	"bytes"
+	"fmt"
 	//	"bytes"
 	"sync"
 	"sync/atomic"
@@ -125,8 +126,25 @@ func (rf *Raft) readPersist(data []byte) {
 // A service wants to switch to snapshot.  Only do so if Raft hasn't
 // have more recent info since it communicate the snapshot on applyCh.
 func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
+	DPrintf("{Node %v} cond install snapshot request, lastIncludedTerm = %v, lastIncludedIndex = %v", rf.me, lastIncludedTerm, lastIncludedIndex)
 
-	// Your code here (2D).
+	// outdated snapshot
+	if lastIncludedIndex <= rf.commitIndex {
+		return false
+	}
+
+	if lastIncludedIndex > rf.getLastLog().Index {
+		rf.logs = make([]Entry, 1)
+	} else {
+		rf.logs = shrinkEntriesArray(rf.logs[lastIncludedIndex-rf.getFirstLog().Index:])
+		rf.logs[0].Command = nil
+	}
+	// update dummy entry with lastIncludedTerm and lastIncludedIndex
+	rf.logs[0].Term, rf.logs[0].Index = lastIncludedTerm, lastIncludedIndex
+	rf.lastApplied, rf.commitIndex = lastIncludedIndex, lastIncludedIndex
+
+	rf.persister.SaveStateAndSnapshot(rf.encodeState(), snapshot)
+	DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} after accepting the snapshot which lastIncludedTerm is %v, lastIncludedIndex is %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), lastIncludedTerm, lastIncludedIndex)
 
 	return true
 }
@@ -136,8 +154,53 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 // service no longer needs the log through (and including)
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
-	// Your code here (2D).
 
+	snapshotIndex := rf.getFirstLog().Index
+	if index <= snapshotIndex {
+		DPrintf("{Node %v} rejects replacing log with snapshotIndex %v as current snapshotIndex %v is larger in term %v", rf.me, index, snapshotIndex, rf.currentTerm)
+		return
+	}
+	rf.logs = shrinkEntriesArray(rf.logs[index-snapshotIndex:])
+	rf.logs[0].Command = nil
+	rf.persister.SaveStateAndSnapshot(rf.encodeState(), snapshot)
+	DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} after replacing log with snapshotIndex %v as old snapshotIndex %v is smaller", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), index, snapshotIndex)
+}
+
+func (rf *Raft) InstallSnapshot(request *InstallSnapshotRequest, response *InstallSnapshotResponse) {
+	DPrintf("{Node %v} receive install snapshot. req = %v", rf.me, request)
+
+	response.Term = rf.currentTerm
+
+	if request.Term < rf.currentTerm {
+		return
+	}
+
+	if request.Term > rf.currentTerm {
+		rf.currentTerm, rf.votedFor = request.Term, -1
+		rf.persist()
+	}
+	DPrintf("{Node %v} return1 install snapshot. req = %v", rf.me, request)
+
+	rf.ChangeState(StateFollower)
+	DPrintf("{Node %v} return2 install snapshot. req = %v", rf.me, request)
+
+	// outdated snapshot
+	if request.LastIncludedIndex <= rf.commitIndex {
+		return
+	}
+
+	go func() {
+		rf.applyCh <- ApplyMsg{
+			SnapshotValid: true,
+			Snapshot:      request.Data,
+			SnapshotTerm:  request.LastIncludedTerm,
+			SnapshotIndex: request.LastIncludedIndex,
+		}
+	}()
+
+	DPrintf("{Node %v} return3 install snapshot. req = %v", rf.me, request)
+
+	return
 }
 
 func (rf *Raft) RequestVote(args *RequestVoteRequest, reply *RequestVoteResponse) {
@@ -231,6 +294,10 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteRequest, reply *Req
 
 func (rf *Raft) sendAppendEntries(server int, request *AppendEntriesRequest, response *AppendEntriesResponse) bool {
 	return rf.peers[server].Call("Raft.AppendEntries", request, response)
+}
+
+func (rf *Raft) sendInstallSnapshot(server int, request *InstallSnapshotRequest, response *InstallSnapshotResponse) bool {
+	return rf.peers[server].Call("Raft.InstallSnapshot", request, response)
 }
 
 // the service using Raft (e.g. a k/v server) wants to start
@@ -464,7 +531,21 @@ func (rf *Raft) appendEntry(peer int) {
 
 	if prevLogIndex < rf.getFirstLog().Index {
 
-		// snapshot
+		// request install snapshot
+		firstLog := rf.getFirstLog()
+		request := &InstallSnapshotRequest{
+			Term:              rf.currentTerm,
+			LeaderId:          rf.me,
+			LastIncludedIndex: firstLog.Index,
+			LastIncludedTerm:  firstLog.Term,
+			Data:              rf.persister.ReadSnapshot(),
+		}
+		response := new(InstallSnapshotResponse)
+		DPrintf("{Node %v} send install snapshot request %v", rf.me, request)
+		if rf.sendInstallSnapshot(peer, request, response) {
+			rf.handleInstallSnapshotResponse(peer, request, response)
+		}
+
 	} else {
 		// just entries can catch up
 		firstIndex := rf.getFirstLog().Index
@@ -484,6 +565,23 @@ func (rf *Raft) appendEntry(peer int) {
 
 		}
 	}
+}
+
+func (rf *Raft) handleInstallSnapshotResponse(peer int, request *InstallSnapshotRequest, response *InstallSnapshotResponse) {
+	fmt.Println("handleInstallSnapshotResponse in1")
+	if rf.state == StateLeader && rf.currentTerm == request.Term {
+		if response.Term > rf.currentTerm {
+			rf.ChangeState(StateFollower)
+			rf.currentTerm, rf.votedFor = response.Term, -1
+			rf.persist()
+		} else {
+			fmt.Println("handleInstallSnapshotResponse in2")
+			rf.matchIndex[peer], rf.nextIndex[peer] = request.LastIncludedIndex, request.LastIncludedIndex+1
+			fmt.Printf("修改LastIncludedIndex=%v", request.LastIncludedIndex+1)
+
+		}
+	}
+	DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} after handling InstallSnapshotResponse %v for InstallSnapshotRequest %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), response, request)
 }
 
 func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequest, response *AppendEntriesResponse) {
@@ -615,8 +713,8 @@ func (rf *Raft) BroadcastAppendEntries(isHeartBeat bool) {
 		if isHeartBeat {
 			go rf.sendHeartBeatAppendEntries(peer)
 		} else {
-			go rf.sendNormalAppendEntries(peer)
-			// rf.replicatorCond[peer].Signal()
+			// go rf.sendNormalAppendEntries(peer)
+			rf.replicatorCond[peer].Signal()
 
 		}
 	}
@@ -688,7 +786,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		if i != rf.me {
 			rf.replicatorCond[i] = sync.NewCond(&sync.Mutex{})
 			// start replicator goroutine to replicate entries in batch
-			// go rf.replicator(i)
+			go rf.replicator(i)
 		}
 	}
 

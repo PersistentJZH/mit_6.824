@@ -87,3 +87,17 @@ func insertionSort(sl []int) {
 		}
 	}
 }
+
+func shrinkEntriesArray(entries []Entry) []Entry {
+	// We replace the array if we're using less than half of the space in
+	// it. This number is fairly arbitrary, chosen as an attempt to balance
+	// memory usage vs number of allocations. It could probably be improved
+	// with some focused tuning.
+	const lenMultiple = 2
+	if len(entries)*lenMultiple < cap(entries) {
+		newEntries := make([]Entry, len(entries))
+		copy(newEntries, entries)
+		return newEntries
+	}
+	return entries
+}
