@@ -612,8 +612,8 @@ func (rf *Raft) BroadcastAppendEntries(isHeartBeat bool) {
 		if isHeartBeat {
 			go rf.sendHeartBeatAppendEntries(peer)
 		} else {
-			// go rf.sendNormalAppendEntries(peer)
-			rf.replicatorCond[peer].Signal()
+			go rf.sendNormalAppendEntries(peer)
+			// rf.replicatorCond[peer].Signal()
 
 		}
 	}
@@ -683,7 +683,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 		if i != rf.me {
 			rf.replicatorCond[i] = sync.NewCond(&sync.Mutex{})
 			// start replicator goroutine to replicate entries in batch
-			go rf.replicator(i)
+			// go rf.replicator(i)
 		}
 	}
 
