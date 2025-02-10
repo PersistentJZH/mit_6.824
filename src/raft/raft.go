@@ -327,84 +327,28 @@ func (rf *Raft) StartElection() {
 	}
 }
 
-// func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEntriesResponse) {
-//
-// 	if request.Term < rf.currentTerm {
-// 		response.Term, response.Success = rf.currentTerm, false
-// 		return
-// 	}
-//
-// 	if request.Term > rf.currentTerm {
-// 		rf.currentTerm, rf.votedFor = request.Term, -1
-// 	}
-//
-// 	rf.ChangeState(StateFollower)
-// 	rf.electionTicker.Reset(GetElectionDuration())
-//
-// 	if request.PrevLogIndex < rf.getFirstLog().Index {
-// 		response.Term, response.Success = 0, false
-// 		DPrintf("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} because prevLogIndex %v < firstLogIndex %v", rf.me, request, request.LeaderId, request.PrevLogIndex, rf.getFirstLog().Index)
-// 		return
-// 	}
-//
-// 	if !rf.matchLog(request.PrevLogTerm, request.PrevLogIndex) {
-// 		fmt.Println("receive AppendEntries 1")
-// 		response.Term, response.Success = rf.currentTerm, false
-// 		lastIndex := rf.getLastLog().Index
-// 		if lastIndex < request.PrevLogIndex {
-// 			response.ConflictTerm, response.ConflictIndex = -1, lastIndex+1
-// 		} else {
-// 			firstIndex := rf.getFirstLog().Index
-// 			response.ConflictTerm = rf.logs[request.PrevLogIndex-firstIndex].Term
-// 			index := request.PrevLogIndex - 1
-// 			for index >= firstIndex && rf.logs[index-firstIndex].Term == response.ConflictTerm {
-// 				index--
-// 			}
-// 			response.ConflictIndex = index
-// 		}
-// 		return
-// 	}
-// 	fmt.Println("receive AppendEntries")
-//
-// 	firstIndex := rf.getFirstLog().Index
-// 	for index, entry := range request.Entries {
-// 		if entry.Index-firstIndex >= len(rf.logs) || rf.logs[entry.Index-firstIndex].Term != entry.Term {
-// 			rf.logs = shrinkEntriesArray(append(rf.logs[:entry.Index-firstIndex], request.Entries[index:]...))
-// 			break
-// 		}
-// 	}
-//
-// 	rf.calFollowerCommitIndex(request.LeaderCommit)
-//
-// 	fmt.Println("return AppendEntries")
-//
-// 	response.Term, response.Success = rf.currentTerm, true
-// }
-
 func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEntriesResponse) {
-
-	// common logic: all servers need
-	if request.Term > rf.currentTerm {
-		rf.ChangeState(StateFollower)
-		rf.currentTerm, rf.votedFor = request.Term, -1
-	}
 
 	if request.Term < rf.currentTerm {
 		response.Term, response.Success = rf.currentTerm, false
 		return
 	}
-	rf.ChangeState(StateFollower)
 
-	// if heart beat request
-	if request.Entries == nil || len(request.Entries) == 0 {
-		rf.calFollowerCommitIndex(request.LeaderCommit)
-		response.Term, response.Success = rf.currentTerm, true
+	if request.Term > rf.currentTerm {
+		rf.currentTerm, rf.votedFor = request.Term, -1
+	}
+
+	rf.ChangeState(StateFollower)
+	rf.electionTicker.Reset(GetElectionDuration())
+
+	if request.PrevLogIndex < rf.getFirstLog().Index {
+		response.Term, response.Success = 0, false
+		DPrintf("{Node %v} receives unexpected AppendEntriesRequest %v from {Node %v} because prevLogIndex %v < firstLogIndex %v", rf.me, request, request.LeaderId, request.PrevLogIndex, rf.getFirstLog().Index)
 		return
 	}
-	// if append entry request
+
 	if !rf.matchLog(request.PrevLogTerm, request.PrevLogIndex) {
-		// not enough
-		// prevIndex > lastIndex || rf.logs[index-rf.getFirstLog().Index].Term != term
+		fmt.Println("receive AppendEntries 1")
 		response.Term, response.Success = rf.currentTerm, false
 		lastIndex := rf.getLastLog().Index
 		if lastIndex < request.PrevLogIndex {
@@ -420,8 +364,8 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 		}
 		return
 	}
+	fmt.Println("receive AppendEntries")
 
-	// if match
 	firstIndex := rf.getFirstLog().Index
 	for index, entry := range request.Entries {
 		if entry.Index-firstIndex >= len(rf.logs) || rf.logs[entry.Index-firstIndex].Term != entry.Term {
@@ -432,8 +376,64 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 
 	rf.calFollowerCommitIndex(request.LeaderCommit)
 
+	fmt.Println("return AppendEntries")
+
 	response.Term, response.Success = rf.currentTerm, true
 }
+
+// func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEntriesResponse) {
+//
+// 	// common logic: all servers need
+// 	if request.Term > rf.currentTerm {
+// 		rf.ChangeState(StateFollower)
+// 		rf.currentTerm, rf.votedFor = request.Term, -1
+// 	}
+//
+// 	if request.Term < rf.currentTerm {
+// 		response.Term, response.Success = rf.currentTerm, false
+// 		return
+// 	}
+// 	rf.ChangeState(StateFollower)
+//
+// 	// if heart beat request
+// 	if request.Entries == nil || len(request.Entries) == 0 {
+// 		rf.calFollowerCommitIndex(request.LeaderCommit)
+// 		response.Term, response.Success = rf.currentTerm, true
+// 		return
+// 	}
+// 	// if append entry request
+// 	if !rf.matchLog(request.PrevLogTerm, request.PrevLogIndex) {
+// 		// not enough
+// 		// prevIndex > lastIndex || rf.logs[index-rf.getFirstLog().Index].Term != term
+// 		response.Term, response.Success = rf.currentTerm, false
+// 		lastIndex := rf.getLastLog().Index
+// 		if lastIndex < request.PrevLogIndex {
+// 			response.ConflictTerm, response.ConflictIndex = -1, lastIndex+1
+// 		} else {
+// 			firstIndex := rf.getFirstLog().Index
+// 			response.ConflictTerm = rf.logs[request.PrevLogIndex-firstIndex].Term
+// 			index := request.PrevLogIndex - 1
+// 			for index >= firstIndex && rf.logs[index-firstIndex].Term == response.ConflictTerm {
+// 				index--
+// 			}
+// 			response.ConflictIndex = index
+// 		}
+// 		return
+// 	}
+//
+// 	// if match
+// 	firstIndex := rf.getFirstLog().Index
+// 	for index, entry := range request.Entries {
+// 		if entry.Index-firstIndex >= len(rf.logs) || rf.logs[entry.Index-firstIndex].Term != entry.Term {
+// 			rf.logs = append(rf.logs[:entry.Index-firstIndex], request.Entries[index:]...)
+// 			break
+// 		}
+// 	}
+//
+// 	rf.calFollowerCommitIndex(request.LeaderCommit)
+//
+// 	response.Term, response.Success = rf.currentTerm, true
+// }
 
 func (rf *Raft) sendHeartBeatAppendEntries(peer int) {
 
@@ -490,73 +490,73 @@ func (rf *Raft) appendEntry(peer int) {
 	}
 }
 
-// func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequest, response *AppendEntriesResponse) {
-// 	fmt.Println("handle appendEntry in")
-//
-// 	if rf.state == StateLeader && rf.currentTerm == request.Term {
-// 		if response.Success {
-// 			rf.matchIndex[peer] = request.PrevLogIndex + len(request.Entries)
-// 			rf.nextIndex[peer] = rf.matchIndex[peer] + 1
-// 			rf.calLeaderCommitIndex()
-// 		} else {
-// 			if response.Term > rf.currentTerm {
-// 				rf.ChangeState(StateFollower)
-// 				rf.currentTerm, rf.votedFor = response.Term, -1
-// 				rf.persist()
-// 			} else if response.Term == rf.currentTerm {
-// 				rf.nextIndex[peer] = response.ConflictIndex
-// 				if response.ConflictTerm != -1 {
-// 					firstIndex := rf.getFirstLog().Index
-// 					for i := request.PrevLogIndex; i >= firstIndex; i-- {
-// 						if rf.logs[i-firstIndex].Term == response.ConflictTerm {
-// 							rf.nextIndex[peer] = i + 1
-// 							break
-// 						}
-// 					}
-// 				}
-// 			}
-// 		}
-// 	}
-// 	DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} after handling AppendEntriesResponse %v for AppendEntriesRequest %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), response, request)
-// }
-
 func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequest, response *AppendEntriesResponse) {
-	// common logic: all servers need
-	if response.Term > rf.currentTerm {
-		rf.ChangeState(StateFollower)
-		rf.currentTerm, rf.votedFor = response.Term, -1
-		return
-	}
+	fmt.Println("handle appendEntry in")
 
-	if rf.state != StateLeader || rf.currentTerm != request.Term {
-		return
-	}
-	// success = true -> no conflicts
-	if response.Success {
-		rf.matchIndex[peer] = request.PrevLogIndex + len(request.Entries)
-		rf.nextIndex[peer] = rf.matchIndex[peer] + 1
-		// how to cal LeaderCommitIndex from []matchIndex
-		// its a simple logic
-		// case 1
-		// []matchIndex = [3,5,3,1,3] => sort => [1,3,3,3,4]  => LeaderCommitIndex = 3
-		// case 2
-		// ... => sort => [1,1,3,3,3,4,4,4,4]  => LeaderCommitIndex = 3
-		rf.calLeaderCommitIndex()
-	} else {
-		rf.nextIndex[peer] = response.ConflictIndex
-		if response.ConflictTerm != -1 {
-			firstIndex := rf.getFirstLog().Index
-			for i := request.PrevLogIndex; i >= firstIndex; i-- {
-				if rf.logs[i-firstIndex].Term == response.ConflictTerm {
-					rf.nextIndex[peer] = i + 1
-					break
+	if rf.state == StateLeader && rf.currentTerm == request.Term {
+		if response.Success {
+			rf.matchIndex[peer] = request.PrevLogIndex + len(request.Entries)
+			rf.nextIndex[peer] = rf.matchIndex[peer] + 1
+			rf.calLeaderCommitIndex()
+		} else {
+			if response.Term > rf.currentTerm {
+				rf.ChangeState(StateFollower)
+				rf.currentTerm, rf.votedFor = response.Term, -1
+				rf.persist()
+			} else if response.Term == rf.currentTerm {
+				rf.nextIndex[peer] = response.ConflictIndex
+				if response.ConflictTerm != -1 {
+					firstIndex := rf.getFirstLog().Index
+					for i := request.PrevLogIndex; i >= firstIndex; i-- {
+						if rf.logs[i-firstIndex].Term == response.ConflictTerm {
+							rf.nextIndex[peer] = i + 1
+							break
+						}
+					}
 				}
 			}
 		}
 	}
-
 	DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} after handling AppendEntriesResponse %v for AppendEntriesRequest %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), response, request)
 }
+
+// func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequest, response *AppendEntriesResponse) {
+// 	// common logic: all servers need
+// 	if response.Term > rf.currentTerm {
+// 		rf.ChangeState(StateFollower)
+// 		rf.currentTerm, rf.votedFor = response.Term, -1
+// 		return
+// 	}
+//
+// 	if rf.state != StateLeader || rf.currentTerm != request.Term {
+// 		return
+// 	}
+// 	// success = true -> no conflicts
+// 	if response.Success {
+// 		rf.matchIndex[peer] = request.PrevLogIndex + len(request.Entries)
+// 		rf.nextIndex[peer] = rf.matchIndex[peer] + 1
+// 		// how to cal LeaderCommitIndex from []matchIndex
+// 		// its a simple logic
+// 		// case 1
+// 		// []matchIndex = [3,5,3,1,3] => sort => [1,3,3,3,4]  => LeaderCommitIndex = 3
+// 		// case 2
+// 		// ... => sort => [1,1,3,3,3,4,4,4,4]  => LeaderCommitIndex = 3
+// 		rf.calLeaderCommitIndex()
+// 	} else {
+// 		rf.nextIndex[peer] = response.ConflictIndex
+// 		if response.ConflictTerm != -1 {
+// 			firstIndex := rf.getFirstLog().Index
+// 			for i := request.PrevLogIndex; i >= firstIndex; i-- {
+// 				if rf.logs[i-firstIndex].Term == response.ConflictTerm {
+// 					rf.nextIndex[peer] = i + 1
+// 					break
+// 				}
+// 			}
+// 		}
+// 	}
+//
+// 	DPrintf("{Node %v}'s state is {state %v,term %v,commitIndex %v,lastApplied %v,firstLog %v,lastLog %v} after handling AppendEntriesResponse %v for AppendEntriesRequest %v", rf.me, rf.state, rf.currentTerm, rf.commitIndex, rf.lastApplied, rf.getFirstLog(), rf.getLastLog(), response, request)
+// }
 
 func (rf *Raft) calLeaderCommitIndex() {
 	n := len(rf.matchIndex)
