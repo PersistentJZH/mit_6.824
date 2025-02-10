@@ -19,7 +19,6 @@ package raft
 
 import (
 	"bytes"
-	"fmt"
 	//	"bytes"
 	"sync"
 	"sync/atomic"
@@ -251,7 +250,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	defer rf.mu.Unlock()
 
 	if rf.state != StateLeader {
-		fmt.Println("跳过", command, rf.me)
 		return -1, -1, false
 	}
 
@@ -348,7 +346,6 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 	}
 
 	if !rf.matchLog(request.PrevLogTerm, request.PrevLogIndex) {
-		fmt.Println("receive AppendEntries 1")
 		response.Term, response.Success = rf.currentTerm, false
 		lastIndex := rf.getLastLog().Index
 		if lastIndex < request.PrevLogIndex {
@@ -364,7 +361,6 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 		}
 		return
 	}
-	fmt.Println("receive AppendEntries")
 
 	firstIndex := rf.getFirstLog().Index
 	for index, entry := range request.Entries {
@@ -375,8 +371,6 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 	}
 
 	rf.calFollowerCommitIndex(request.LeaderCommit)
-
-	fmt.Println("return AppendEntries")
 
 	response.Term, response.Success = rf.currentTerm, true
 }
@@ -459,14 +453,14 @@ func (rf *Raft) sendHeartBeatAppendEntries(peer int) {
 
 }
 func (rf *Raft) appendEntry(peer int) {
-	fmt.Println("send appendEntry")
+
 	if rf.state != StateLeader {
 		return
 	}
 	prevLogIndex := rf.nextIndex[peer] - 1
 
 	if prevLogIndex < rf.getFirstLog().Index {
-		fmt.Println("snapshot")
+
 		// snapshot
 	} else {
 		// just entries can catch up
@@ -483,7 +477,6 @@ func (rf *Raft) appendEntry(peer int) {
 		}
 		response := new(AppendEntriesResponse)
 		if rf.sendAppendEntries(peer, request, response) {
-			fmt.Println("handle appendEntry")
 			rf.handleAppendEntriesResponse(peer, request, response)
 
 		}
@@ -491,7 +484,6 @@ func (rf *Raft) appendEntry(peer int) {
 }
 
 func (rf *Raft) handleAppendEntriesResponse(peer int, request *AppendEntriesRequest, response *AppendEntriesResponse) {
-	fmt.Println("handle appendEntry in")
 
 	if rf.state == StateLeader && rf.currentTerm == request.Term {
 		if response.Success {
@@ -567,7 +559,6 @@ func (rf *Raft) calLeaderCommitIndex() {
 	if newCommitIndex > rf.commitIndex {
 		// only allow commit current term's log
 		if rf.matchLog(rf.currentTerm, newCommitIndex) {
-			fmt.Println("leader commit")
 			DPrintf("{Node %d} advance commitIndex from %d to %d with matchIndex %v in term %d", rf.me, rf.commitIndex, newCommitIndex, rf.matchIndex, rf.currentTerm)
 			rf.commitIndex = newCommitIndex
 			rf.applyCond.Signal()
@@ -580,12 +571,9 @@ func (rf *Raft) calLeaderCommitIndex() {
 
 func (rf *Raft) calFollowerCommitIndex(leaderCommit int) {
 	newCommitIndex := Min(leaderCommit, rf.getLastLog().Index)
-	fmt.Println("cal follower commit", newCommitIndex, rf.commitIndex)
-	fmt.Println(newCommitIndex, rf.commitIndex)
 
 	if newCommitIndex > rf.commitIndex {
 		if rf.matchLog(rf.currentTerm, newCommitIndex) {
-			fmt.Println("follower commit")
 			DPrintf("{Node %d} advance commitIndex from %d to %d with leaderCommit %d in term %d", rf.me, rf.commitIndex, newCommitIndex, leaderCommit, rf.currentTerm)
 			rf.commitIndex = newCommitIndex
 			rf.applyCond.Signal()
@@ -732,7 +720,6 @@ func (rf *Raft) applier() {
 		copy(entries, rf.logs[lastApplied+1-firstIndex:commitIndex+1-firstIndex])
 		rf.mu.Unlock()
 		for _, entry := range entries {
-			fmt.Printf("applier %v, server= %v \n", entry, rf.me)
 			rf.applyCh <- ApplyMsg{
 				CommandValid: true,
 				Command:      entry.Command,
