@@ -68,6 +68,8 @@ type Raft struct {
 	applyCond      *sync.Cond   // used to wakeup applier goroutine after committing new entries
 	replicatorCond []*sync.Cond // used to signal replicator goroutine to batch replicating entries
 
+	appendEntriesChan []chan int
+
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
 	persister *Persister          // Object to hold this peer's persisted state
@@ -575,7 +577,9 @@ func (rf *Raft) appendEntry(peer int) {
 		// just entries can catch up
 		firstIndex := rf.getFirstLog().Index
 		entries := make([]Entry, len(rf.logs[prevLogIndex+1-firstIndex:]))
-		copy(entries, rf.logs[prevLogIndex+1-firstIndex:])
+		rf.mu.Lock()
+		copy(entries, rf.logs[prevLogIndex+1-firstIndex:]) // todo index error
+		rf.mu.Unlock()
 		request := &AppendEntriesRequest{
 			Term:         rf.currentTerm,
 			LeaderId:     rf.me,
@@ -720,7 +724,7 @@ func (rf *Raft) needReplicating(peer int) bool {
 func (rf *Raft) sendNormalAppendEntries(peer int) {
 	for rf.killed() == false {
 		for !rf.needReplicating(peer) {
-			return
+			break
 		}
 		// maybe a pipeline mechanism is better to trade-off the memory usage and catch up time
 		rf.appendEntry(peer)
@@ -740,7 +744,7 @@ func (rf *Raft) BroadcastAppendEntries(isHeartBeat bool) {
 		} else {
 			// go rf.sendNormalAppendEntries(peer)
 			rf.replicatorCond[peer].Signal()
-
+			// rf.appendEntriesChan[peer] <- peer
 		}
 	}
 }
@@ -783,18 +787,19 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 
 	rf := &Raft{
-		peers:          peers,
-		persister:      persister,
-		me:             me,
-		dead:           0,
-		applyCh:        applyCh,
-		state:          StateFollower,
-		currentTerm:    0,
-		votedFor:       -1,
-		logs:           make([]Entry, 1),
-		nextIndex:      make([]int, len(peers)),
-		matchIndex:     make([]int, len(peers)),
-		replicatorCond: make([]*sync.Cond, len(peers)),
+		peers:             peers,
+		persister:         persister,
+		me:                me,
+		dead:              0,
+		applyCh:           applyCh,
+		state:             StateFollower,
+		currentTerm:       0,
+		votedFor:          -1,
+		logs:              make([]Entry, 1),
+		nextIndex:         make([]int, len(peers)),
+		matchIndex:        make([]int, len(peers)),
+		replicatorCond:    make([]*sync.Cond, len(peers)),
+		appendEntriesChan: make([]chan int, len(peers)),
 
 		// 广播时间（broadcastTime） << 选举超时时间（electionTimeout） << 平均故障间隔时间（MTBF
 		electionTicker: time.NewTimer(GetElectionDuration()),
@@ -812,6 +817,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 			rf.replicatorCond[i] = sync.NewCond(&sync.Mutex{})
 			// start replicator goroutine to replicate entries in batch
 			go rf.replicator(i)
+			// rf.appendEntriesChan[i] = make(chan int, 100)
+			// go rf.handleAppendEntity(rf.appendEntriesChan[i])
 		}
 	}
 
@@ -821,7 +828,17 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	return rf
 }
+func (rf *Raft) handleAppendEntity(c chan int) {
 
+	for {
+		peer, ok := <-c
+		if !ok {
+			fmt.Println("Channel closed")
+			break
+		}
+		rf.sendNormalAppendEntries(peer)
+	}
+}
 func (rf *Raft) replicator(peer int) {
 	rf.replicatorCond[peer].L.Lock()
 	defer rf.replicatorCond[peer].L.Unlock()
