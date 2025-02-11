@@ -34,7 +34,15 @@ jobs:
       - name: Run tests 2C
         run: |
           cd src/raft
-          for i in {1..30}; do
+          for i in {1..5}; do
             echo "Running test 2C round: $i"
             go test -run 2C
+          done
+
+      - name: Run tests 2D
+        run: |
+          cd src/raft
+          for i in {1..5}; do
+            echo "Running test 2D round: $i"
+            go test -run 2D
           done

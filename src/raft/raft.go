@@ -504,13 +504,38 @@ func (rf *Raft) sendHeartBeatAppendEntries(peer int) {
 
 		return
 	}
+	prevLogIndex := rf.nextIndex[peer] - 1
 
+	if prevLogIndex < rf.getFirstLog().Index {
+
+		// request install snapshot
+		firstLog := rf.getFirstLog()
+		request := &InstallSnapshotRequest{
+			Term:              rf.currentTerm,
+			LeaderId:          rf.me,
+			LastIncludedIndex: firstLog.Index,
+			LastIncludedTerm:  firstLog.Term,
+			Data:              rf.persister.ReadSnapshot(),
+		}
+		response := new(InstallSnapshotResponse)
+		DPrintf("{Node %v} send install snapshot request %v", rf.me, request)
+		if rf.sendInstallSnapshot(peer, request, response) {
+			rf.handleInstallSnapshotResponse(peer, request, response)
+		}
+		return
+	}
+
+	firstIndex := rf.getFirstLog().Index
+	entries := make([]Entry, len(rf.logs[prevLogIndex+1-firstIndex:]))
+	copy(entries, rf.logs[prevLogIndex+1-firstIndex:]) // todo 为什么是这样？
 	request := &AppendEntriesRequest{
 		Term:         rf.currentTerm,
 		LeaderId:     rf.me,
+		PrevLogIndex: prevLogIndex,
+		PrevLogTerm:  rf.logs[prevLogIndex-firstIndex].Term,
+		Entries:      entries,
 		LeaderCommit: rf.commitIndex,
 	}
-
 	response := new(AppendEntriesResponse)
 	DPrintf("Term:%d, [Node %v] send heart beat to [Node %v]", rf.currentTerm, rf.me, peer)
 	if rf.sendAppendEntries(peer, request, response) {
@@ -711,7 +736,7 @@ func (rf *Raft) BroadcastAppendEntries(isHeartBeat bool) {
 			continue
 		}
 		if isHeartBeat {
-			go rf.sendHeartBeatAppendEntries(peer)
+			go rf.appendEntry(peer)
 		} else {
 			// go rf.sendNormalAppendEntries(peer)
 			rf.replicatorCond[peer].Signal()
