@@ -190,6 +190,9 @@ func (rf *Raft) InstallSnapshot(request *InstallSnapshotRequest, response *Insta
 	if request.LastIncludedIndex <= rf.commitIndex {
 		return
 	}
+	if len(request.Data) == 0 {
+		return
+	}
 
 	go func() {
 		rf.applyCh <- ApplyMsg{
@@ -432,8 +435,9 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 		}
 		return
 	}
-
+	rf.mu.Lock()
 	firstIndex := rf.getFirstLog().Index
+	rf.mu.Unlock()
 	for index, entry := range request.Entries {
 		if entry.Index-firstIndex >= len(rf.logs) || rf.logs[entry.Index-firstIndex].Term != entry.Term {
 			rf.logs = append(rf.logs[:entry.Index-firstIndex], request.Entries[index:]...)
@@ -554,12 +558,12 @@ func (rf *Raft) appendEntry(peer int) {
 	if rf.state != StateLeader {
 		return
 	}
+	rf.mu.Lock()
 	prevLogIndex := rf.nextIndex[peer] - 1
-
-	if prevLogIndex < rf.getFirstLog().Index {
-
+	firstLog := rf.getFirstLog()
+	rf.mu.Unlock()
+	if prevLogIndex < firstLog.Index {
 		// request install snapshot
-		firstLog := rf.getFirstLog()
 		request := &InstallSnapshotRequest{
 			Term:              rf.currentTerm,
 			LeaderId:          rf.me,
@@ -575,7 +579,7 @@ func (rf *Raft) appendEntry(peer int) {
 
 	} else {
 		// just entries can catch up
-		firstIndex := rf.getFirstLog().Index
+		firstIndex := firstLog.Index
 		entries := make([]Entry, len(rf.logs[prevLogIndex+1-firstIndex:]))
 		rf.mu.Lock()
 		copy(entries, rf.logs[prevLogIndex+1-firstIndex:]) // todo index error
