@@ -69,7 +69,7 @@ type Raft struct {
 
 	appendEntriesChan []chan int
 
-	mu        sync.Mutex          // Lock to protect shared access to this peer's state
+	mu        sync.RWMutex        // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
 	persister *Persister          // Object to hold this peer's persisted state
 	me        int                 // this peer's index into peers[]
@@ -84,8 +84,8 @@ type Raft struct {
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
 	return rf.currentTerm, rf.state == StateLeader
 }
 
@@ -128,7 +128,8 @@ func (rf *Raft) readPersist(data []byte) {
 // have more recent info since it communicate the snapshot on applyCh.
 func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool {
 	DPrintf("{Node %v} cond install snapshot request, lastIncludedTerm = %v, lastIncludedIndex = %v", rf.me, lastIncludedTerm, lastIncludedIndex)
-
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	// outdated snapshot
 	if lastIncludedIndex <= rf.commitIndex {
 		return false
@@ -155,7 +156,8 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 // service no longer needs the log through (and including)
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
-
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	snapshotIndex := rf.getFirstLog().Index
 	if index <= snapshotIndex {
 		DPrintf("{Node %v} rejects replacing log with snapshotIndex %v as current snapshotIndex %v is larger in term %v", rf.me, index, snapshotIndex, rf.currentTerm)
@@ -168,6 +170,8 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 }
 
 func (rf *Raft) InstallSnapshot(request *InstallSnapshotRequest, response *InstallSnapshotResponse) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	DPrintf("{Node %v} receive install snapshot. req = %v", rf.me, request)
 
 	response.Term = rf.currentTerm
@@ -208,6 +212,8 @@ func (rf *Raft) InstallSnapshot(request *InstallSnapshotRequest, response *Insta
 }
 
 func (rf *Raft) RequestVote(args *RequestVoteRequest, reply *RequestVoteResponse) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	defer rf.persist()
 	// common logic: all servers need
 	if args.Term > rf.currentTerm {
@@ -245,8 +251,7 @@ func (rf *Raft) getFirstLog() Entry {
 }
 
 func (rf *Raft) ChangeState(state string) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+
 	if rf.state == state {
 		return
 	}
@@ -335,7 +340,7 @@ func (rf *Raft) appendNewEntry(command interface{}) Entry {
 	defer rf.persist()
 	lastLog := rf.getLastLog()
 	newLog := Entry{lastLog.Index + 1, rf.currentTerm, command}
-	rf.logs = append(rf.logs, newLog)
+	rf.logs = shrinkEntriesArray(append(rf.logs, newLog))
 	rf.matchIndex[rf.me], rf.nextIndex[rf.me] = newLog.Index, newLog.Index+1
 	return newLog
 }
@@ -380,6 +385,8 @@ func (rf *Raft) StartElection() {
 		go func(peer int) {
 			response := new(RequestVoteResponse)
 			if rf.sendRequestVote(peer, request, response) {
+				rf.mu.Lock()
+				defer rf.mu.Unlock()
 
 				if rf.currentTerm == request.Term && rf.state == StateCandidate {
 					if response.VoteGranted {
@@ -399,6 +406,8 @@ func (rf *Raft) StartElection() {
 }
 
 func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEntriesResponse) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	defer rf.persist()
 	if request.Term < rf.currentTerm {
 		response.Term, response.Success = rf.currentTerm, false
@@ -434,12 +443,10 @@ func (rf *Raft) AppendEntries(request *AppendEntriesRequest, response *AppendEnt
 		}
 		return
 	}
-	rf.mu.Lock()
 	firstIndex := rf.getFirstLog().Index
-	rf.mu.Unlock()
 	for index, entry := range request.Entries {
 		if entry.Index-firstIndex >= len(rf.logs) || rf.logs[entry.Index-firstIndex].Term != entry.Term {
-			rf.logs = append(rf.logs[:entry.Index-firstIndex], request.Entries[index:]...)
+			rf.logs = shrinkEntriesArray(append(rf.logs[:entry.Index-firstIndex], request.Entries[index:]...))
 			break
 		}
 	}
@@ -552,20 +559,22 @@ func (rf *Raft) sendHeartBeatAppendEntries(peer int) {
 
 }
 func (rf *Raft) RaftStateSize() int {
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
 	return rf.persister.RaftStateSize()
 }
 
 func (rf *Raft) appendEntry(peer int) {
+	rf.mu.RLock()
 	defer rf.persist()
 
 	if rf.state != StateLeader {
+		rf.mu.RUnlock()
 		return
 	}
-	rf.mu.Lock()
 	prevLogIndex := rf.nextIndex[peer] - 1
 	firstLog := rf.getFirstLog()
 	data := rf.persister.ReadSnapshot()
-	rf.mu.Unlock()
 
 	if prevLogIndex < firstLog.Index {
 		// request install snapshot
@@ -579,19 +588,21 @@ func (rf *Raft) appendEntry(peer int) {
 			LastIncludedTerm:  firstLog.Term,
 			Data:              data,
 		}
+		rf.mu.RUnlock()
 		response := new(InstallSnapshotResponse)
 		DPrintf("{Node %v} send install snapshot request %v", rf.me, request)
 		if rf.sendInstallSnapshot(peer, request, response) {
+			rf.mu.Lock()
 			rf.handleInstallSnapshotResponse(peer, request, response)
+			rf.mu.Unlock()
+
 		}
 
 	} else {
 		// just entries can catch up
 		firstIndex := firstLog.Index
 		entries := make([]Entry, len(rf.logs[prevLogIndex+1-firstIndex:]))
-		rf.mu.Lock()
 		copy(entries, rf.logs[prevLogIndex+1-firstIndex:]) // todo index error
-		rf.mu.Unlock()
 		request := &AppendEntriesRequest{
 			Term:         rf.currentTerm,
 			LeaderId:     rf.me,
@@ -600,9 +611,14 @@ func (rf *Raft) appendEntry(peer int) {
 			Entries:      entries,
 			LeaderCommit: rf.commitIndex,
 		}
+		rf.mu.RUnlock()
+
 		response := new(AppendEntriesResponse)
 		if rf.sendAppendEntries(peer, request, response) {
+			rf.mu.Lock()
+
 			rf.handleAppendEntriesResponse(peer, request, response)
+			rf.mu.Unlock()
 
 		}
 	}
@@ -726,7 +742,8 @@ func (rf *Raft) matchLog(term, index int) bool {
 }
 
 func (rf *Raft) needReplicating(peer int) bool {
-
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
 	return rf.state == StateLeader && rf.matchIndex[peer] < rf.getLastLog().Index
 }
 
@@ -765,17 +782,23 @@ func (rf *Raft) ticker() {
 		for {
 			select {
 			case <-rf.electionTicker.C:
+				rf.mu.Lock()
+
 				rf.ChangeState(StateCandidate)
 				rf.currentTerm += 1
 				DPrintf("Term:%d, {Node %v} start request vote in ticker", rf.currentTerm, rf.me)
 				rf.StartElection()
 				rf.electionTicker.Reset(GetElectionDuration())
+				rf.mu.Unlock()
 
 			case <-rf.heartbeatTimer.C:
+				rf.mu.Lock()
+
 				if rf.state == StateLeader {
 					rf.BroadcastAppendEntries(true)
 					rf.heartbeatTimer.Reset(GetHeartbeatDuration())
 				}
+				rf.mu.Unlock()
 
 			}
 		}
@@ -870,6 +893,9 @@ func (rf *Raft) applier() {
 		}
 		firstIndex, commitIndex, lastApplied := rf.getFirstLog().Index, rf.commitIndex, rf.lastApplied
 		entries := make([]Entry, commitIndex-lastApplied)
+		if len(rf.logs) < (lastApplied + 1 - firstIndex) {
+			return
+		}
 		copy(entries, rf.logs[lastApplied+1-firstIndex:commitIndex+1-firstIndex])
 		rf.mu.Unlock()
 		for _, entry := range entries {

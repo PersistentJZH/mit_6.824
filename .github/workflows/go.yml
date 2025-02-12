@@ -62,11 +62,18 @@ jobs:
 #            echo "Running test 3A round: $i"
 #            go test -run 3A
 #          done
-
-      - name: Run tests 3B
+      - name: Run tests 2
         run: |
           cd src/kvraft
           for i in {1..10}; do
-            echo "Running test 3B round: $i"
-            go test -run 3B
+            echo "Running test 2 round: $i"
+            go test -run 2
+          done
+
+      - name: Run tests 3
+        run: |
+          cd src/kvraft
+          for i in {1..10}; do
+            echo "Running test 3 round: $i"
+            go test -run 3
           done
