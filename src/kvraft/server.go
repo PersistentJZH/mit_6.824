@@ -135,7 +135,6 @@ func (kv *KVServer) GetChan(index int) chan Op {
 		kv.executeChan[index] = make(chan Op, 1)
 		ch = kv.executeChan[index]
 	}
-	log.Println("create chan index", index)
 	return ch
 }
 
