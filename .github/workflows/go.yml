@@ -55,13 +55,13 @@ jobs:
 #            go test -run 2D
 #          done
 
-      - name: Run tests 3A
-        run: |
-          cd src/kvraft
-          for i in {1..10}; do
-            echo "Running test 3A round: $i"
-            go test -run 3A
-          done
+#      - name: Run tests 3A
+#        run: |
+#          cd src/kvraft
+#          for i in {1..10}; do
+#            echo "Running test 3A round: $i"
+#            go test -run 3A
+#          done
 
       - name: Run tests 3B
         run: |

@@ -19,7 +19,6 @@ package raft
 
 import (
 	"bytes"
-	"fmt"
 	//	"bytes"
 	"sync"
 	"sync/atomic"
@@ -610,16 +609,13 @@ func (rf *Raft) appendEntry(peer int) {
 }
 
 func (rf *Raft) handleInstallSnapshotResponse(peer int, request *InstallSnapshotRequest, response *InstallSnapshotResponse) {
-	fmt.Println("handleInstallSnapshotResponse in1")
 	if rf.state == StateLeader && rf.currentTerm == request.Term {
 		if response.Term > rf.currentTerm {
 			rf.ChangeState(StateFollower)
 			rf.currentTerm, rf.votedFor = response.Term, -1
 			rf.persist()
 		} else {
-			fmt.Println("handleInstallSnapshotResponse in2")
 			rf.matchIndex[peer], rf.nextIndex[peer] = request.LastIncludedIndex, request.LastIncludedIndex+1
-			fmt.Printf("修改LastIncludedIndex=%v", request.LastIncludedIndex+1)
 
 		}
 	}
@@ -846,7 +842,6 @@ func (rf *Raft) handleAppendEntity(c chan int) {
 	for {
 		peer, ok := <-c
 		if !ok {
-			fmt.Println("Channel closed")
 			break
 		}
 		rf.sendNormalAppendEntries(peer)
