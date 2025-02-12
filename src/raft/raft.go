@@ -561,15 +561,20 @@ func (rf *Raft) appendEntry(peer int) {
 	rf.mu.Lock()
 	prevLogIndex := rf.nextIndex[peer] - 1
 	firstLog := rf.getFirstLog()
+	data := rf.persister.ReadSnapshot()
 	rf.mu.Unlock()
+
 	if prevLogIndex < firstLog.Index {
 		// request install snapshot
+		if len(data) == 0 {
+			return
+		}
 		request := &InstallSnapshotRequest{
 			Term:              rf.currentTerm,
 			LeaderId:          rf.me,
 			LastIncludedIndex: firstLog.Index,
 			LastIncludedTerm:  firstLog.Term,
-			Data:              rf.persister.ReadSnapshot(),
+			Data:              data,
 		}
 		response := new(InstallSnapshotResponse)
 		DPrintf("{Node %v} send install snapshot request %v", rf.me, request)
