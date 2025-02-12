@@ -39,18 +39,34 @@ jobs:
 #            go test -run 2C
 #          done
 
-      - name: Run tests 2D1
+#      - name: Run tests 2D1
+#        run: |
+#          cd src/raft
+#          for i in {1..50}; do
+#            echo "Running test 2D round: $i"
+#            go test -run TestSnapshotBasic2D
+#          done
+#
+#      - name: Run tests 2D
+#        run: |
+#          cd src/raft
+#          for i in {1..10}; do
+#            echo "Running test 2D round: $i"
+#            go test -run 2D
+#          done
+
+      - name: Run tests 3A
         run: |
-          cd src/raft
-          for i in {1..50}; do
-            echo "Running test 2D round: $i"
-            go test -run TestSnapshotBasic2D
+          cd src/kvraft
+          for i in {1..10}; do
+            echo "Running test 3A round: $i"
+            go test -run 3A
           done
 
-      - name: Run tests 2D
+      - name: Run tests 3B
         run: |
-          cd src/raft
+          cd src/kvraft
           for i in {1..10}; do
-            echo "Running test 2D round: $i"
-            go test -run 2D
+            echo "Running test 3B round: $i"
+            go test -run 3B
           done

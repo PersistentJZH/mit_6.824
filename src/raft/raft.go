@@ -552,6 +552,10 @@ func (rf *Raft) sendHeartBeatAppendEntries(peer int) {
 	}
 
 }
+func (rf *Raft) RaftStateSize() int {
+	return rf.persister.RaftStateSize()
+}
+
 func (rf *Raft) appendEntry(peer int) {
 	defer rf.persist()
 

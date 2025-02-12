@@ -1,6 +1,8 @@
 package kvraft
 
 import (
+	"bytes"
+	"fmt"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -49,6 +51,41 @@ type KVServer struct {
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
+	if kv.killed() {
+		reply.Err = ErrWrongLeader
+		return
+	}
+
+	// Your code here.
+	op := Op{Key: args.Key, Option: "Get", ClientId: args.ClientId, OptionId: args.OptionId}
+	index, _, isLeader := kv.rf.Start(op)
+	if !isLeader {
+		reply.Err = ErrWrongLeader
+		return
+	}
+	// 阻塞等待 - - 要设置超时时间
+	kv.mu.Lock()
+	ch := kv.GetChan(index)
+	kv.mu.Unlock()
+	select {
+	case result := <-ch:
+		if result.OptionId != args.OptionId || result.ClientId != args.ClientId {
+			reply.Err = ErrWrongLeader
+		} else {
+			reply.Value = result.Value
+			DPrintf("Key= %s Get value = %s\n", args.Key, result.Value)
+			reply.Err = OK
+		}
+
+	case <-time.After(100 * time.Millisecond):
+		DPrintf("Get Timeout\n")
+		reply.Err = ErrTimeOut
+	}
+	go func() {
+		kv.mu.Lock()
+		delete(kv.executeChan, index)
+		kv.mu.Unlock()
+	}()
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
@@ -148,6 +185,105 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
 	// You may need initialization code here.
+	kv.kvMap = make(map[string]string)
+	kv.executeChan = make(map[int]chan Op)
+	kv.lastOptionId = make(map[int64]int)
+	kv.lastIncludeIndex = -1
+	snapshot := persister.ReadSnapshot()
+	kv.mu.Lock()
+	kv.ReadSnapshot(snapshot)
+	kv.mu.Unlock()
+	go kv.applier()
 
 	return kv
+}
+
+func (kv *KVServer) ReadSnapshot(data []byte) {
+	if data == nil || len(data) < 1 {
+		return
+	}
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+
+	var kvMap map[string]string
+	var lastOptionId map[int64]int
+	if d.Decode(&kvMap) != nil || d.Decode(&lastOptionId) != nil {
+		fmt.Println("read persist err")
+	} else {
+		kv.kvMap = kvMap
+		kv.lastOptionId = lastOptionId
+	}
+}
+
+func (kv *KVServer) IsDuplicateRequest(clientId int64, OptionId int) bool {
+
+	_, ok := kv.lastOptionId[clientId]
+	if ok {
+		return OptionId <= kv.lastOptionId[clientId]
+	}
+	return ok
+}
+func (kv *KVServer) PersistSnapshot() []byte {
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(kv.kvMap)
+	e.Encode(kv.lastOptionId)
+	SnapshotBytes := w.Bytes()
+	return SnapshotBytes
+}
+
+func (kv *KVServer) applier() {
+	for !kv.killed() {
+		select {
+		case msg := <-kv.applyCh:
+			if msg.CommandValid {
+				kv.mu.Lock()
+				if msg.CommandIndex <= kv.lastIncludeIndex {
+					kv.mu.Unlock()
+					continue
+				}
+				kv.lastIncludeIndex = msg.CommandIndex
+				command := msg.Command.(Op)
+				DPrintf("%d server applyCh msg = %v\n", kv.me, msg)
+				if command.Option != "Get" && !kv.IsDuplicateRequest(command.ClientId, command.OptionId) {
+
+					switch command.Option {
+
+					case "Append":
+						kv.kvMap[command.Key] += command.Value
+
+					case "Put":
+						kv.kvMap[command.Key] = command.Value
+					}
+
+					kv.lastOptionId[command.ClientId] = command.OptionId
+				}
+				if command.Option == "Get" {
+					command.Value = kv.kvMap[command.Key]
+					DPrintf("%d server applyCh msg = %v, value = %v\n", kv.me, msg, command.Value)
+				}
+
+				if _, isLeader := kv.rf.GetState(); isLeader {
+					kv.GetChan(msg.CommandIndex) <- command
+				}
+				if kv.maxraftstate != -1 && kv.rf.RaftStateSize() >= kv.maxraftstate {
+					DPrintf("%d server PersistSnapshot, index = %v\n", kv.me, msg.CommandIndex)
+					kv.rf.Snapshot(msg.CommandIndex, kv.PersistSnapshot())
+				}
+				kv.mu.Unlock()
+			}
+
+			if msg.SnapshotValid {
+				kv.mu.Lock()
+				DPrintf("%d SnapshotValid: kv.lastIncludeIndex =%d, msg.SnapshotIndex=%d\n", kv.me, kv.lastIncludeIndex, msg.SnapshotIndex)
+				kv.ReadSnapshot(msg.Snapshot)
+				kv.lastIncludeIndex = msg.SnapshotIndex
+
+				kv.mu.Unlock()
+			}
+
+		}
+
+	}
 }
